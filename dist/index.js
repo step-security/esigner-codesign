@@ -165,8 +165,8 @@ const axios_1 = __importStar(__nccwpck_require__(8757));
 const fs_1 = __importDefault(__nccwpck_require__(7147));
 const path_1 = __importDefault(__nccwpck_require__(1017));
 const constants_1 = __nccwpck_require__(5105);
-const codesigner_1 = __nccwpck_require__(6598);
-const installer_1 = __nccwpck_require__(2507);
+const setup_codesigner_1 = __nccwpck_require__(5422);
+const setup_jdk_installer_1 = __nccwpck_require__(4512);
 const util_1 = __nccwpck_require__(4024);
 // Check if Java installation is required
 const isJavaInstallationNeeded = () => {
@@ -188,7 +188,7 @@ const performLogCleanup = (commandPath) => {
         const baseDirectory = path_1.default.dirname(commandPath);
         const logDirectory = path_1.default.join(baseDirectory, 'logs');
         fs_1.default.rmSync(logDirectory, { recursive: true, force: true });
-        core.info(`CodeSigner logs folder is deleted: ${logDirectory}`);
+        core.info(`Log directory cleaned: ${logDirectory}`);
     }
 };
 // Setup Java environment if needed
@@ -196,15 +196,15 @@ const setupJavaEnvironment = () => __awaiter(void 0, void 0, void 0, function* (
     var _a, _b, _c;
     let javaHomePath = (_a = process.env['JAVA_HOME']) !== null && _a !== void 0 ? _a : '';
     const javaVer = parseInt((_b = process.env['JAVA_VERSION']) !== null && _b !== void 0 ? _b : '0');
-    core.info(`JDK home: ${javaHomePath}`);
-    core.info(`JDK version: ${javaVer}`);
+    core.info(`Java home directory: ${javaHomePath}`);
+    core.info(`Java version: ${javaVer}`);
     if (isJavaInstallationNeeded()) {
-        const jdkProvider = new installer_1.CorrettoJdkProvider();
+        const jdkProvider = new setup_jdk_installer_1.CorrettoJdkProvider();
         yield jdkProvider.performSetup();
         javaHomePath = (_c = process.env['JAVA_HOME']) !== null && _c !== void 0 ? _c : '';
     }
     else {
-        core.info(`JDK is already installed ${javaHomePath}`);
+        core.info(`Java already installed at: ${javaHomePath}`);
     }
     return javaHomePath;
 });
@@ -231,20 +231,20 @@ function main() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
             yield validateSubscription();
-            core.debug('Run CodeSigner');
-            core.debug('Running ESigner.com CodeSign Action ====>');
+            core.debug('Initializing code signing workflow');
+            core.debug('Starting signing action execution');
             const operationType = core.getInput(constants_1.INPUT_KEYS.CMD);
             const commandParameters = (0, util_1.assembleCommandString)(operationType);
-            core.info(`Input Commands: ${commandParameters}`);
+            core.info(`Command parameters: ${commandParameters}`);
             const javaPath = yield setupJavaEnvironment();
-            const signingTool = new codesigner_1.SigningToolManager();
+            const signingTool = new setup_codesigner_1.SigningToolManager();
             let toolCommand = yield signingTool.initialize();
             toolCommand = toolCommand.replace(/\${{ JAVA_HOME }}/g, `${javaPath}/bin/java`);
             const fullCommand = `${toolCommand} ${commandParameters}`;
-            core.info(`CodeSigner Command: ${fullCommand}`);
+            core.info(`Executing signing command: ${fullCommand}`);
             const malwareScanEnabled = core.getInput(constants_1.INPUT_KEYS.MALWARE_CHECK, { required: false });
             const shouldScan = malwareScanEnabled.toUpperCase() === 'TRUE';
-            core.info(`Malware scan is: ${shouldScan ? 'enabled' : 'disabled'}`);
+            core.info(`Malware scanning: ${shouldScan ? 'enabled' : 'disabled'}`);
             if (operationType === constants_1.OPERATIONS.BULK_SIGN && shouldScan) {
                 const scanSuccess = yield signingTool.performMalwareScan(toolCommand, operationType);
                 if (!scanSuccess) {
@@ -274,7 +274,7 @@ main().then();
 
 /***/ }),
 
-/***/ 6598:
+/***/ 5422:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -335,27 +335,10 @@ class SigningToolManager {
             platform: currentPlatform
         };
     }
-    ensureToolDownloaded(baseDir, downloadUrl) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const cachedPath = process.env['CODESIGNTOOL_PATH'];
-            const defaultPath = path_1.default.join(baseDir, constants_1.SIGNING_TOOL_DIR);
-            let toolPath = cachedPath !== null && cachedPath !== void 0 ? cachedPath : defaultPath;
-            if (!(0, fs_1.existsSync)(toolPath)) {
-                core.info(`Downloading CodeSignTool from ${downloadUrl}`);
-                const downloadedArchive = yield tc.downloadTool(downloadUrl);
-                yield (0, util_1.unzipToDestination)(downloadedArchive, path_1.default.join(baseDir, constants_1.SIGNING_TOOL_DIR));
-                core.info(`Extract CodeSignTool from download path ${downloadedArchive} to ${baseDir}`);
-                const extractedDirs = fs_1.default.readdirSync(baseDir);
-                toolPath = path_1.default.join(baseDir, extractedDirs[0]);
-                core.exportVariable(`CODESIGNTOOL_PATH`, toolPath);
-            }
-            return toolPath;
-        });
-    }
     writeConfiguration(toolPath, environment) {
         const configContent = environment === constants_1.ENV_CONFIG.PRODUCTION ? config_1.PROD_ENV_SETTINGS : config_1.SANDBOX_ENV_SETTINGS;
         const configPath = path_1.default.join(toolPath, 'conf/code_sign_tool.properties');
-        core.info(`Write CodeSignTool config file to ${configPath}`);
+        core.info(`Writing configuration file to ${configPath}`);
         (0, fs_1.writeFileSync)(configPath, configContent, { encoding: 'utf-8', flag: 'w' });
     }
     buildExecutableCommand(toolPath, scriptName, signVersion, memoryLimit, platform) {
@@ -365,7 +348,7 @@ class SigningToolManager {
             const modifiedContent = scriptContent
                 .replace(/java -jar/g, `java -Xmx${memoryLimit} -jar`)
                 .replace(/\$@/g, `"\$@"`);
-            core.info(`Exec Cmd Content: ${modifiedContent}`);
+            core.info(`Prepared executable command with memory limit: ${memoryLimit}`);
             (0, fs_1.writeFileSync)(scriptPath, modifiedContent, { encoding: 'utf-8', flag: 'w' });
             (0, fs_1.chmodSync)(scriptPath, '0755');
             return scriptPath;
@@ -378,6 +361,11 @@ class SigningToolManager {
                 .replace(/\${{ JVM_MAX_MEMORY }}/g, memoryLimit);
         }
     }
+    hasExecutionError(output) {
+        const errorPatterns = ['Error', 'Exception', 'Missing required option', 'Unmatched arguments from', 'Unmatched argument'];
+        const checkStream = (stream) => errorPatterns.some(pattern => stream.includes(pattern));
+        return checkStream(output.stdout) || checkStream(output.stderr);
+    }
     initialize() {
         return __awaiter(this, void 0, void 0, function* () {
             const workDir = path_1.default.resolve(process.cwd());
@@ -386,21 +374,21 @@ class SigningToolManager {
             const toolBaseDir = path_1.default.resolve(process.cwd(), 'codesign');
             if (!(0, fs_1.existsSync)(toolBaseDir)) {
                 (0, fs_1.mkdirSync)(toolBaseDir);
-                core.info(`Created CodeSignTool base path ${toolBaseDir}`);
+                core.info(`Created tool base directory: ${toolBaseDir}`);
             }
             const toolPath = yield this.ensureToolDownloaded(toolBaseDir, downloadUrl);
-            core.info(`Archive name: ${constants_1.SIGNING_TOOL_DIR}, ${toolPath}`);
+            core.info(`Signing tool installed at: ${toolPath}`);
             (0, util_1.debugListDirectory)(toolPath);
             const environment = core.getInput(constants_1.INPUT_KEYS.ENV_NAME) || constants_1.ENV_CONFIG.PRODUCTION;
             const memoryLimit = core.getInput(constants_1.INPUT_KEYS.MEMORY_LIMIT) || '2048M';
             const signVersion = core.getInput(constants_1.INPUT_KEYS.SIGN_VERSION) || constants_1.SIGN_METHOD.VERSION_ONE;
             this.writeConfiguration(toolPath, environment);
-            core.info(`Set CODE_SIGN_TOOL_PATH env variable: ${toolPath}`);
+            core.info(`Configured signing tool path: ${toolPath}`);
             core.exportVariable(`CODE_SIGN_TOOL_PATH`, toolPath);
             const executableCmd = this.buildExecutableCommand(toolPath, executableScript, signVersion, memoryLimit, platform);
             const shellPrefix = (0, util_1.resolveUserShell)(signVersion);
-            core.info(`Shell Cmd: ${shellPrefix}`);
-            core.info(`Exec Cmd : ${executableCmd}`);
+            core.info(`Shell command: ${shellPrefix}`);
+            core.info(`Executable command: ${executableCmd}`);
             const finalCommand = `${shellPrefix} ${executableCmd}`.trim();
             return finalCommand;
         });
@@ -413,10 +401,22 @@ class SigningToolManager {
         }
         return scanCmd;
     }
-    hasExecutionError(output) {
-        const errorPatterns = ['Error', 'Exception', 'Missing required option', 'Unmatched arguments from', 'Unmatched argument'];
-        const checkStream = (stream) => errorPatterns.some(pattern => stream.includes(pattern));
-        return checkStream(output.stdout) || checkStream(output.stderr);
+    ensureToolDownloaded(baseDir, downloadUrl) {
+        return __awaiter(this, void 0, void 0, function* () {
+            const cachedPath = process.env['CODESIGNTOOL_PATH'];
+            const defaultPath = path_1.default.join(baseDir, constants_1.SIGNING_TOOL_DIR);
+            let toolPath = cachedPath !== null && cachedPath !== void 0 ? cachedPath : defaultPath;
+            if (!(0, fs_1.existsSync)(toolPath)) {
+                core.info(`Fetching signing tool from ${downloadUrl}`);
+                const downloadedArchive = yield tc.downloadTool(downloadUrl);
+                yield (0, util_1.unzipToDestination)(downloadedArchive, path_1.default.join(baseDir, constants_1.SIGNING_TOOL_DIR));
+                core.info(`Extracting signing tool archive from ${downloadedArchive} to ${baseDir}`);
+                const extractedDirs = fs_1.default.readdirSync(baseDir);
+                toolPath = path_1.default.join(baseDir, extractedDirs[0]);
+                core.exportVariable(`CODESIGNTOOL_PATH`, toolPath);
+            }
+            return toolPath;
+        });
     }
     performMalwareScan(baseCommand, operation) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -427,7 +427,7 @@ class SigningToolManager {
                 const fullFilePath = path_1.default.join(targetDirectory, entry);
                 const scanWithFile = `${scanCommand} -input_file_path="${fullFilePath}"`;
                 const completeScanCmd = `${baseCommand} ${scanWithFile}`;
-                core.info(`CodeSigner scan code command: ${completeScanCmd}`);
+                core.info(`Scanning file for malware: ${entry}`);
                 const execResult = yield exec.getExecOutput(completeScanCmd, [], { windowsVerbatimArguments: false });
                 if (this.hasExecutionError(execResult)) {
                     return false;
@@ -442,7 +442,7 @@ exports.SigningToolManager = SigningToolManager;
 
 /***/ }),
 
-/***/ 9723:
+/***/ 3297:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -507,70 +507,16 @@ class JdkInstallationBase {
         this.distributionType = 'jdk';
         this.shouldCheckLatest = false;
     }
-    performSetup() {
-        return __awaiter(this, void 0, void 0, function* () {
-            let jdkInstallation = this.searchToolCache();
-            const shouldFetchLatest = this.shouldCheckLatest;
-            if (jdkInstallation && !shouldFetchLatest) {
-                core.info(`Resolved Java ${jdkInstallation.version} from tool-cache`);
-            }
-            else {
-                core.info('Trying to resolve the latest version from remote');
-                const releasePackage = yield this.locateReleaseForVersion(this.jdkVersion);
-                core.info(`Resolved latest version as ${releasePackage.version}`);
-                const isCachedVersionMatching = (jdkInstallation === null || jdkInstallation === void 0 ? void 0 : jdkInstallation.version) === releasePackage.version;
-                if (isCachedVersionMatching && jdkInstallation) {
-                    core.info(`Resolved Java ${jdkInstallation.version} from tool-cache`);
-                }
-                else {
-                    core.info('Trying to download...');
-                    jdkInstallation = yield this.fetchJdkArchive(releasePackage);
-                    core.info(`Java ${jdkInstallation.version} was downloaded`);
-                }
-            }
-            if (!jdkInstallation) {
-                throw new Error('Failed to setup JDK installation');
-            }
-            // Handle macOS specific JDK path structure
-            const macosJdkPath = path_1.default.join(jdkInstallation.path, constants_1.JAVA_MAC_PATH_SUFFIX);
-            const isMacOS = process.platform === 'darwin';
-            if (isMacOS && fs.existsSync(macosJdkPath)) {
-                jdkInstallation.path = macosJdkPath;
-            }
-            core.info(`Setting Java ${jdkInstallation.version} as the default`);
-            this.configureJavaEnvironment(jdkInstallation.version, jdkInstallation.path);
-            return jdkInstallation;
-        });
-    }
-    get cachedToolDirectory() {
-        return `Java_${this.distributionName}_${this.distributionType}`;
-    }
-    formatCacheVersionName(versionString) {
-        const isEarlyAccess = !this.isStableRelease;
-        if (isEarlyAccess) {
-            return versionString.includes('+') ? versionString.replace('+', '-ea.') : `${versionString}-ea`;
-        }
-        return versionString.replace('+', '-');
-    }
-    searchToolCache() {
-        const cachedVersions = tc
-            .findAllVersions(this.cachedToolDirectory, this.systemArchitecture)
-            .map(versionStr => {
-            const normalizedVersion = versionStr.replace('-ea.', '+').replace(/-ea$/, '').replace('-', '+');
-            const toolPath = (0, util_1.findCachedTool)(this.cachedToolDirectory, versionStr, this.systemArchitecture) || '';
-            const isStable = !versionStr.includes('-ea');
-            return { version: normalizedVersion, path: toolPath, stable: isStable };
-        })
-            .filter(entry => entry.stable === this.isStableRelease);
-        const matchingVersions = cachedVersions
-            .filter(entry => (0, util_1.checkVersionCompatibility)(this.jdkVersion, entry.version))
-            .filter(entry => entry.path)
-            .sort((first, second) => -semver_1.default.compareBuild(first.version, second.version));
-        if (!matchingVersions || matchingVersions.length === 0) {
-            return null;
-        }
-        const bestMatch = matchingVersions[0];
-        return { version: bestMatch.version, path: bestMatch.path };
+    configureJavaEnvironment(versionStr, installPath) {
+        const majorVersionNumber = versionStr.split('.')[0];
+        const archUppercase = this.systemArchitecture.toUpperCase();
+        core.exportVariable('JAVA_HOME', installPath);
+        core.addPath(path_1.default.join(installPath, 'bin'));
+        core.setOutput('distribution', this.distributionName);
+        core.setOutput('path', installPath);
+        core.setOutput('version', versionStr);
+        core.exportVariable(`JAVA_HOME_${majorVersionNumber}_${archUppercase}`, installPath);
+        core.exportVariable(`JAVA_VERSION`, majorVersionNumber);
     }
     parseVersion(versionStr) {
         let isStable = true;
@@ -589,16 +535,47 @@ class JdkInstallationBase {
         }
         return { version: cleanedVersion, stable: isStable };
     }
-    configureJavaEnvironment(versionStr, installPath) {
-        const majorVersionNumber = versionStr.split('.')[0];
-        const archUppercase = this.systemArchitecture.toUpperCase();
-        core.exportVariable('JAVA_HOME', installPath);
-        core.addPath(path_1.default.join(installPath, 'bin'));
-        core.setOutput('distribution', this.distributionName);
-        core.setOutput('path', installPath);
-        core.setOutput('version', versionStr);
-        core.exportVariable(`JAVA_HOME_${majorVersionNumber}_${archUppercase}`, installPath);
-        core.exportVariable(`JAVA_VERSION`, majorVersionNumber);
+    get cachedToolDirectory() {
+        return `Java_${this.distributionName}_${this.distributionType}`;
+    }
+    formatCacheVersionName(versionString) {
+        const isEarlyAccess = !this.isStableRelease;
+        if (isEarlyAccess) {
+            return versionString.includes('+') ? versionString.replace('+', '-ea.') : `${versionString}-ea`;
+        }
+        return versionString.replace('+', '-');
+    }
+    searchToolCache() {
+        const cachedVersions = this.getCachedVersionsList();
+        const matchingVersions = this.filterAndSortVersions(cachedVersions);
+        if (!matchingVersions || matchingVersions.length === 0) {
+            return null;
+        }
+        const bestMatch = matchingVersions[0];
+        return { version: bestMatch.version, path: bestMatch.path };
+    }
+    filterAndSortVersions(versions) {
+        return versions
+            .filter(entry => (0, util_1.checkVersionCompatibility)(this.jdkVersion, entry.version))
+            .filter(entry => entry.path)
+            .sort((first, second) => -semver_1.default.compareBuild(first.version, second.version));
+    }
+    getCachedVersionsList() {
+        return tc
+            .findAllVersions(this.cachedToolDirectory, this.systemArchitecture)
+            .map(versionStr => {
+            const normalizedVersion = this.normalizeVersionString(versionStr);
+            const toolPath = (0, util_1.findCachedTool)(this.cachedToolDirectory, versionStr, this.systemArchitecture) || '';
+            const isStable = !versionStr.includes('-ea');
+            return { version: normalizedVersion, path: toolPath, stable: isStable };
+        })
+            .filter(entry => entry.stable === this.isStableRelease);
+    }
+    normalizeVersionString(versionStr) {
+        return versionStr
+            .replace('-ea.', '+')
+            .replace(/-ea$/, '')
+            .replace('-', '+');
     }
     translateArchitecture() {
         const archMap = {
@@ -608,13 +585,48 @@ class JdkInstallationBase {
         };
         return archMap[this.systemArchitecture] || this.systemArchitecture;
     }
+    performSetup() {
+        return __awaiter(this, void 0, void 0, function* () {
+            let jdkInstallation = this.searchToolCache();
+            const shouldFetchLatest = this.shouldCheckLatest;
+            if (jdkInstallation && !shouldFetchLatest) {
+                core.info(`Found JDK ${jdkInstallation.version} in cache`);
+            }
+            else {
+                core.info('Resolving latest JDK version from remote');
+                const releasePackage = yield this.locateReleaseForVersion(this.jdkVersion);
+                core.info(`Latest version identified: ${releasePackage.version}`);
+                const isCachedVersionMatching = (jdkInstallation === null || jdkInstallation === void 0 ? void 0 : jdkInstallation.version) === releasePackage.version;
+                if (isCachedVersionMatching && jdkInstallation) {
+                    core.info(`Found JDK ${jdkInstallation.version} in cache`);
+                }
+                else {
+                    core.info('Downloading JDK package');
+                    jdkInstallation = yield this.fetchJdkArchive(releasePackage);
+                    core.info(`JDK ${jdkInstallation.version} downloaded successfully`);
+                }
+            }
+            if (!jdkInstallation) {
+                throw new Error('Failed to setup JDK installation');
+            }
+            // Handle macOS specific JDK path structure
+            const macosJdkPath = path_1.default.join(jdkInstallation.path, constants_1.JAVA_MAC_PATH_SUFFIX);
+            const isMacOS = process.platform === 'darwin';
+            if (isMacOS && fs.existsSync(macosJdkPath)) {
+                jdkInstallation.path = macosJdkPath;
+            }
+            core.info(`Configuring JDK ${jdkInstallation.version} as default`);
+            this.configureJavaEnvironment(jdkInstallation.version, jdkInstallation.path);
+            return jdkInstallation;
+        });
+    }
 }
 exports.JdkInstallationBase = JdkInstallationBase;
 
 
 /***/ }),
 
-/***/ 2507:
+/***/ 4512:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
 "use strict";
@@ -661,23 +673,36 @@ const tc = __importStar(__nccwpck_require__(7784));
 const fs_1 = __importDefault(__nccwpck_require__(7147));
 const path_1 = __importDefault(__nccwpck_require__(1017));
 const util_1 = __nccwpck_require__(4024);
-const base_installer_1 = __nccwpck_require__(9723);
-class CorrettoJdkProvider extends base_installer_1.JdkInstallationBase {
+const setup_jdk_base_installer_1 = __nccwpck_require__(3297);
+class CorrettoJdkProvider extends setup_jdk_base_installer_1.JdkInstallationBase {
     constructor() {
         super('Corretto');
     }
-    fetchJdkArchive(releaseInfo) {
-        return __awaiter(this, void 0, void 0, function* () {
-            core.info(`Downloading Java ${releaseInfo.version} (${this.distributionName}) from ${releaseInfo.url} ...`);
-            const downloadedArchive = yield tc.downloadTool(releaseInfo.url);
-            core.info(`Extracting Java archive...`);
-            const extractedDirectory = yield (0, util_1.unpackJavaArchive)(downloadedArchive, (0, util_1.detectArchiveFormat)());
-            const directoryContents = fs_1.default.readdirSync(extractedDirectory);
-            const jdkDirectory = path_1.default.join(extractedDirectory, directoryContents[0]);
-            const formattedVersion = this.formatCacheVersionName(releaseInfo.version);
-            const cachedJdkPath = yield tc.cacheDir(jdkDirectory, this.cachedToolDirectory, formattedVersion, this.systemArchitecture);
-            return { version: releaseInfo.version, path: cachedJdkPath };
-        });
+    findMatchingReleases(releases, targetVersion) {
+        return releases
+            .filter(release => release.version === targetVersion)
+            .map(release => ({
+            version: release.correttoVersion,
+            url: release.downloadLink
+        }));
+    }
+    formatVersionList(releases) {
+        return releases.map(r => r.version).join(', ');
+    }
+    determinePlatformName() {
+        const platformMapping = {
+            'darwin': 'macos',
+            'win32': 'windows'
+        };
+        return platformMapping[process.platform] || process.platform;
+    }
+    extractVersionFromPath(resourcePath) {
+        const versionPattern = /(\d+.+)\//;
+        const matched = versionPattern.exec(resourcePath);
+        if (!matched) {
+            throw Error(`Could not parse corretto version from ${resourcePath}`);
+        }
+        return matched[1];
     }
     locateReleaseForVersion(versionStr) {
         return __awaiter(this, void 0, void 0, function* () {
@@ -688,43 +713,14 @@ class CorrettoJdkProvider extends base_installer_1.JdkInstallationBase {
                 throw new Error('Only major versions are supported');
             }
             const availableReleases = yield this.fetchAvailableReleases();
-            const compatibleReleases = availableReleases
-                .filter(release => release.version === versionStr)
-                .map(release => ({
-                version: release.correttoVersion,
-                url: release.downloadLink
-            }));
+            const compatibleReleases = this.findMatchingReleases(availableReleases, versionStr);
             const selectedRelease = compatibleReleases.length > 0 ? compatibleReleases[0] : null;
             if (!selectedRelease) {
-                const versionList = availableReleases.map(r => r.version).join(', ');
+                const versionList = this.formatVersionList(availableReleases);
                 const errorSuffix = versionList ? `\nAvailable versions: ${versionList}` : '';
                 throw new Error(`Could not find satisfied version for SemVer '${versionStr}'. ${errorSuffix}`);
             }
             return selectedRelease;
-        });
-    }
-    fetchAvailableReleases() {
-        var _a, _b;
-        return __awaiter(this, void 0, void 0, function* () {
-            const osType = this.determinePlatformName();
-            const architecture = this.translateArchitecture();
-            const packageType = this.distributionType;
-            const debugMode = core.isDebug();
-            if (debugMode) {
-                console.time('corretto-retrieve-available-versions');
-            }
-            const versionIndexUrl = 'https://corretto.github.io/corretto-downloads/latest_links/indexmap_with_checksum.json';
-            const response = yield this.httpClient.getJson(versionIndexUrl);
-            const versionData = response.result;
-            if (!versionData) {
-                throw Error(`Could not fetch latest corretto versions from ${versionIndexUrl}`);
-            }
-            const platformVersions = (_b = (_a = versionData === null || versionData === void 0 ? void 0 : versionData[osType]) === null || _a === void 0 ? void 0 : _a[architecture]) === null || _b === void 0 ? void 0 : _b[packageType];
-            const processedVersions = this.extractPlatformVersions(platformVersions);
-            if (debugMode) {
-                this.logAvailableVersions(processedVersions);
-            }
-            return processedVersions;
         });
     }
     extractPlatformVersions(versionData) {
@@ -753,6 +749,19 @@ class CorrettoJdkProvider extends base_installer_1.JdkInstallationBase {
         }
         return versions;
     }
+    fetchJdkArchive(releaseInfo) {
+        return __awaiter(this, void 0, void 0, function* () {
+            core.info(`Downloading JDK ${releaseInfo.version} from ${releaseInfo.url}`);
+            const downloadedArchive = yield tc.downloadTool(releaseInfo.url);
+            core.info(`Extracting JDK archive`);
+            const extractedDirectory = yield (0, util_1.unpackJavaArchive)(downloadedArchive, (0, util_1.detectArchiveFormat)());
+            const directoryContents = fs_1.default.readdirSync(extractedDirectory);
+            const jdkDirectory = path_1.default.join(extractedDirectory, directoryContents[0]);
+            const formattedVersion = this.formatCacheVersionName(releaseInfo.version);
+            const cachedJdkPath = yield tc.cacheDir(jdkDirectory, this.cachedToolDirectory, formattedVersion, this.systemArchitecture);
+            return { version: releaseInfo.version, path: cachedJdkPath };
+        });
+    }
     logAvailableVersions(versions) {
         core.startGroup('Print information about available versions');
         console.timeEnd('corretto-retrieve-available-versions');
@@ -761,20 +770,29 @@ class CorrettoJdkProvider extends base_installer_1.JdkInstallationBase {
         console.log(versionSummary);
         core.endGroup();
     }
-    determinePlatformName() {
-        const platformMapping = {
-            'darwin': 'macos',
-            'win32': 'windows'
-        };
-        return platformMapping[process.platform] || process.platform;
-    }
-    extractVersionFromPath(resourcePath) {
-        const versionPattern = /(\d+.+)\//;
-        const matched = versionPattern.exec(resourcePath);
-        if (!matched) {
-            throw Error(`Could not parse corretto version from ${resourcePath}`);
-        }
-        return matched[1];
+    fetchAvailableReleases() {
+        var _a, _b;
+        return __awaiter(this, void 0, void 0, function* () {
+            const osType = this.determinePlatformName();
+            const architecture = this.translateArchitecture();
+            const packageType = this.distributionType;
+            const debugMode = core.isDebug();
+            if (debugMode) {
+                console.time('corretto-retrieve-available-versions');
+            }
+            const versionIndexUrl = 'https://corretto.github.io/corretto-downloads/latest_links/indexmap_with_checksum.json';
+            const response = yield this.httpClient.getJson(versionIndexUrl);
+            const versionData = response.result;
+            if (!versionData) {
+                throw Error(`Could not fetch latest corretto versions from ${versionIndexUrl}`);
+            }
+            const platformVersions = (_b = (_a = versionData === null || versionData === void 0 ? void 0 : versionData[osType]) === null || _a === void 0 ? void 0 : _a[architecture]) === null || _b === void 0 ? void 0 : _b[packageType];
+            const processedVersions = this.extractPlatformVersions(platformVersions);
+            if (debugMode) {
+                this.logAvailableVersions(processedVersions);
+            }
+            return processedVersions;
+        });
     }
 }
 exports.CorrettoJdkProvider = CorrettoJdkProvider;
@@ -823,7 +841,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.appendParameter = exports.assembleCommandString = exports.replaceEnv = exports.unpackJavaArchive = exports.resolveUserShell = exports.fetchInputValue = exports.debugListDirectory = exports.identifyPlatform = exports.findCachedTool = exports.checkVersionCompatibility = exports.detectArchiveFormat = exports.unzipToDestination = exports.getTempDir = void 0;
+exports.appendParameter = exports.assembleCommandString = exports.expandEnvironmentVars = exports.unpackJavaArchive = exports.resolveUserShell = exports.fetchInputValue = exports.debugListDirectory = exports.identifyPlatform = exports.findCachedTool = exports.checkVersionCompatibility = exports.detectArchiveFormat = exports.unzipToDestination = exports.getTempDir = void 0;
 const os_1 = __importStar(__nccwpck_require__(2037));
 const path_1 = __importDefault(__nccwpck_require__(1017));
 const fs = __importStar(__nccwpck_require__(7147));
@@ -890,7 +908,7 @@ function debugListDirectory(dirPath) {
 }
 exports.debugListDirectory = debugListDirectory;
 function fetchInputValue(inputKey) {
-    return replaceEnv(core.getInput(inputKey));
+    return expandEnvironmentVars(core.getInput(inputKey));
 }
 exports.fetchInputValue = fetchInputValue;
 function resolveUserShell(signingMethod) {
@@ -939,7 +957,7 @@ function unpackJavaArchive(toolPath, extension) {
     });
 }
 exports.unpackJavaArchive = unpackJavaArchive;
-function replaceEnv(input) {
+function expandEnvironmentVars(input) {
     let result = input;
     const variables = process.env;
     for (const envKey in variables) {
@@ -949,7 +967,7 @@ function replaceEnv(input) {
     }
     return result;
 }
-exports.replaceEnv = replaceEnv;
+exports.expandEnvironmentVars = expandEnvironmentVars;
 function assembleCommandString(action) {
     let cmd = `${core.getInput(constants_1.INPUT_KEYS.CMD)}`;
     cmd = appendParameter(constants_1.INPUT_KEYS.USER, cmd, action);
@@ -1003,10 +1021,10 @@ function appendParameter(inputKey, command, action) {
         inputValue = path_1.default.normalize(inputValue);
         const outputExists = fs.existsSync(inputValue);
         if (outputExists) {
-            core.info(`CodeSignTool output path ${inputValue} already exist`);
+            core.info(`Output directory already exists: ${inputValue}`);
         }
         else {
-            core.info(`Creating CodeSignTool output path ${inputValue}`);
+            core.info(`Creating output directory: ${inputValue}`);
             fs.mkdirSync(inputValue);
         }
         updatedCommand = `${updatedCommand} -output_dir_path="${inputValue}"`;

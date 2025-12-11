@@ -204,10 +204,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ---
 
-## 🤝 Contributing
-
-Contributions are welcome! Please feel free to submit issues or pull requests.
-
----
-
 **Note:** This action requires an active SSL.com eSigner subscription and proper configuration of credentials and TOTP authentication.

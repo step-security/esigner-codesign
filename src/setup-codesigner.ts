@@ -14,10 +14,10 @@ import {
     SIGNING_TOOL_DIR,
     SIGN_METHOD,
     JAVA_EXEC_TEMPLATES
-} from '../constants';
-import { PROD_ENV_SETTINGS, SANDBOX_ENV_SETTINGS } from '../config';
+} from './constants';
+import { PROD_ENV_SETTINGS, SANDBOX_ENV_SETTINGS } from './config';
 
-import { unzipToDestination, fetchInputValue, identifyPlatform, debugListDirectory, appendParameter, resolveUserShell } from '../util';
+import { unzipToDestination, fetchInputValue, identifyPlatform, debugListDirectory, appendParameter, resolveUserShell } from './util';
 
 export class SigningToolManager {
     constructor() {}
@@ -33,30 +33,11 @@ export class SigningToolManager {
         };
     }
 
-    private async ensureToolDownloaded(baseDir: string, downloadUrl: string): Promise<string> {
-        const cachedPath = process.env['CODESIGNTOOL_PATH'];
-        const defaultPath = path.join(baseDir, SIGNING_TOOL_DIR);
-        let toolPath = cachedPath ?? defaultPath;
-
-        if (!existsSync(toolPath)) {
-            core.info(`Downloading CodeSignTool from ${downloadUrl}`);
-            const downloadedArchive = await tc.downloadTool(downloadUrl);
-            await unzipToDestination(downloadedArchive, path.join(baseDir, SIGNING_TOOL_DIR));
-            core.info(`Extract CodeSignTool from download path ${downloadedArchive} to ${baseDir}`);
-
-            const extractedDirs = fs.readdirSync(baseDir);
-            toolPath = path.join(baseDir, extractedDirs[0]);
-            core.exportVariable(`CODESIGNTOOL_PATH`, toolPath);
-        }
-
-        return toolPath;
-    }
-
     private writeConfiguration(toolPath: string, environment: string): void {
         const configContent = environment === ENV_CONFIG.PRODUCTION ? PROD_ENV_SETTINGS : SANDBOX_ENV_SETTINGS;
         const configPath = path.join(toolPath, 'conf/code_sign_tool.properties');
 
-        core.info(`Write CodeSignTool config file to ${configPath}`);
+        core.info(`Writing configuration file to ${configPath}`);
         writeFileSync(configPath, configContent, { encoding: 'utf-8', flag: 'w' });
     }
 
@@ -68,7 +49,7 @@ export class SigningToolManager {
                 .replace(/java -jar/g, `java -Xmx${memoryLimit} -jar`)
                 .replace(/\$@/g, `"\$@"`);
 
-            core.info(`Exec Cmd Content: ${modifiedContent}`);
+            core.info(`Prepared executable command with memory limit: ${memoryLimit}`);
             writeFileSync(scriptPath, modifiedContent, { encoding: 'utf-8', flag: 'w' });
             chmodSync(scriptPath, '0755');
 
@@ -83,6 +64,13 @@ export class SigningToolManager {
         }
     }
 
+    private hasExecutionError(output: { stdout: string; stderr: string }): boolean {
+        const errorPatterns = ['Error', 'Exception', 'Missing required option', 'Unmatched arguments from', 'Unmatched argument'];
+        const checkStream = (stream: string) => errorPatterns.some(pattern => stream.includes(pattern));
+
+        return checkStream(output.stdout) || checkStream(output.stderr);
+    }
+
     public async initialize(): Promise<string> {
         const workDir = path.resolve(process.cwd());
         debugListDirectory(workDir);
@@ -92,11 +80,11 @@ export class SigningToolManager {
         const toolBaseDir = path.resolve(process.cwd(), 'codesign');
         if (!existsSync(toolBaseDir)) {
             mkdirSync(toolBaseDir);
-            core.info(`Created CodeSignTool base path ${toolBaseDir}`);
+            core.info(`Created tool base directory: ${toolBaseDir}`);
         }
 
         const toolPath = await this.ensureToolDownloaded(toolBaseDir, downloadUrl);
-        core.info(`Archive name: ${SIGNING_TOOL_DIR}, ${toolPath}`);
+        core.info(`Signing tool installed at: ${toolPath}`);
         debugListDirectory(toolPath);
 
         const environment = core.getInput(INPUT_KEYS.ENV_NAME) || ENV_CONFIG.PRODUCTION;
@@ -105,14 +93,14 @@ export class SigningToolManager {
 
         this.writeConfiguration(toolPath, environment);
 
-        core.info(`Set CODE_SIGN_TOOL_PATH env variable: ${toolPath}`);
+        core.info(`Configured signing tool path: ${toolPath}`);
         core.exportVariable(`CODE_SIGN_TOOL_PATH`, toolPath);
 
         const executableCmd = this.buildExecutableCommand(toolPath, executableScript, signVersion, memoryLimit, platform);
         const shellPrefix = resolveUserShell(signVersion);
 
-        core.info(`Shell Cmd: ${shellPrefix}`);
-        core.info(`Exec Cmd : ${executableCmd}`);
+        core.info(`Shell command: ${shellPrefix}`);
+        core.info(`Executable command: ${executableCmd}`);
 
         const finalCommand = `${shellPrefix} ${executableCmd}`.trim();
         return finalCommand;
@@ -129,11 +117,23 @@ export class SigningToolManager {
         return scanCmd;
     }
 
-    private hasExecutionError(output: { stdout: string; stderr: string }): boolean {
-        const errorPatterns = ['Error', 'Exception', 'Missing required option', 'Unmatched arguments from', 'Unmatched argument'];
-        const checkStream = (stream: string) => errorPatterns.some(pattern => stream.includes(pattern));
+        private async ensureToolDownloaded(baseDir: string, downloadUrl: string): Promise<string> {
+        const cachedPath = process.env['CODESIGNTOOL_PATH'];
+        const defaultPath = path.join(baseDir, SIGNING_TOOL_DIR);
+        let toolPath = cachedPath ?? defaultPath;
 
-        return checkStream(output.stdout) || checkStream(output.stderr);
+        if (!existsSync(toolPath)) {
+            core.info(`Fetching signing tool from ${downloadUrl}`);
+            const downloadedArchive = await tc.downloadTool(downloadUrl);
+            await unzipToDestination(downloadedArchive, path.join(baseDir, SIGNING_TOOL_DIR));
+            core.info(`Extracting signing tool archive from ${downloadedArchive} to ${baseDir}`);
+
+            const extractedDirs = fs.readdirSync(baseDir);
+            toolPath = path.join(baseDir, extractedDirs[0]);
+            core.exportVariable(`CODESIGNTOOL_PATH`, toolPath);
+        }
+
+        return toolPath;
     }
 
     public async performMalwareScan(baseCommand: string, operation: string): Promise<boolean> {
@@ -146,7 +146,7 @@ export class SigningToolManager {
             const scanWithFile = `${scanCommand} -input_file_path="${fullFilePath}"`;
             const completeScanCmd = `${baseCommand} ${scanWithFile}`;
 
-            core.info(`CodeSigner scan code command: ${completeScanCmd}`);
+            core.info(`Scanning file for malware: ${entry}`);
 
             const execResult = await exec.getExecOutput(completeScanCmd, [], { windowsVerbatimArguments: false });
 

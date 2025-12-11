@@ -1,6 +1,6 @@
 {
   "name": "esigner-codesign",
-  "version": "1.3.2",
+  "version": "1.0.0",
   "private": true,
   "description": "GitHub Action for SSL.com code signing with enhanced security features",
   "main": "dist/index.js",

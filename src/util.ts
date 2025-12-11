@@ -70,7 +70,7 @@ export function debugListDirectory(dirPath: string): void {
 
 
 export function fetchInputValue(inputKey: string) {
-    return replaceEnv(core.getInput(inputKey));
+    return expandEnvironmentVars(core.getInput(inputKey));
 }
 
 export function resolveUserShell(signingMethod: string): string | null {
@@ -121,7 +121,7 @@ export async function unpackJavaArchive(toolPath: string, extension?: string) {
 }
 
 
-export function replaceEnv(input: string): string {
+export function expandEnvironmentVars(input: string): string {
     let result = input;
     const variables = process.env;
     for (const envKey in variables) {
@@ -180,9 +180,9 @@ export function appendParameter(inputKey: string, command: string, action: strin
         inputValue = path.normalize(inputValue);
         const outputExists = fs.existsSync(inputValue);
         if (outputExists) {
-            core.info(`CodeSignTool output path ${inputValue} already exist`);
+            core.info(`Output directory already exists: ${inputValue}`);
         } else {
-            core.info(`Creating CodeSignTool output path ${inputValue}`);
+            core.info(`Creating output directory: ${inputValue}`);
             fs.mkdirSync(inputValue);
         }
         updatedCommand = `${updatedCommand} -output_dir_path="${inputValue}"`;

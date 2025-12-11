@@ -6,8 +6,8 @@ import fs from 'fs';
 import path from 'path';
 import { OPERATIONS, INPUT_KEYS } from './constants';
 
-import { SigningToolManager } from './setup-codesigner/codesigner';
-import { CorrettoJdkProvider } from './setup-jdk/installer';
+import { SigningToolManager } from './setup-codesigner';
+import { CorrettoJdkProvider } from './setup-jdk-installer';
 import { assembleCommandString } from './util';
 
 // Check if Java installation is required
@@ -35,7 +35,7 @@ const performLogCleanup = (commandPath: string): void => {
         const logDirectory = path.join(baseDirectory, 'logs');
 
         fs.rmSync(logDirectory, { recursive: true, force: true });
-        core.info(`CodeSigner logs folder is deleted: ${logDirectory}`);
+        core.info(`Log directory cleaned: ${logDirectory}`);
     }
 };
 
@@ -44,15 +44,15 @@ const setupJavaEnvironment = async (): Promise<string> => {
     let javaHomePath = process.env['JAVA_HOME'] ?? '';
     const javaVer = parseInt(process.env['JAVA_VERSION'] ?? '0');
 
-    core.info(`JDK home: ${javaHomePath}`);
-    core.info(`JDK version: ${javaVer}`);
+    core.info(`Java home directory: ${javaHomePath}`);
+    core.info(`Java version: ${javaVer}`);
 
     if (isJavaInstallationNeeded()) {
         const jdkProvider = new CorrettoJdkProvider();
         await jdkProvider.performSetup();
         javaHomePath = process.env['JAVA_HOME'] ?? '';
     } else {
-        core.info(`JDK is already installed ${javaHomePath}`);
+        core.info(`Java already installed at: ${javaHomePath}`);
     }
 
     return javaHomePath;
@@ -80,12 +80,12 @@ async function validateSubscription(): Promise<void> {
 async function main(): Promise<void> {
     try {
         await validateSubscription();
-        core.debug('Run CodeSigner');
-        core.debug('Running ESigner.com CodeSign Action ====>');
+        core.debug('Initializing code signing workflow');
+        core.debug('Starting signing action execution');
 
         const operationType = core.getInput(INPUT_KEYS.CMD);
         const commandParameters = assembleCommandString(operationType);
-        core.info(`Input Commands: ${commandParameters}`);
+        core.info(`Command parameters: ${commandParameters}`);
 
         const javaPath = await setupJavaEnvironment();
 
@@ -93,11 +93,11 @@ async function main(): Promise<void> {
         let toolCommand = await signingTool.initialize();
         toolCommand = toolCommand.replace(/\${{ JAVA_HOME }}/g, `${javaPath}/bin/java`);
         const fullCommand = `${toolCommand} ${commandParameters}`;
-        core.info(`CodeSigner Command: ${fullCommand}`);
+        core.info(`Executing signing command: ${fullCommand}`);
 
         const malwareScanEnabled = core.getInput(INPUT_KEYS.MALWARE_CHECK, { required: false });
         const shouldScan = malwareScanEnabled.toUpperCase() === 'TRUE';
-        core.info(`Malware scan is: ${shouldScan ? 'enabled' : 'disabled'}`);
+        core.info(`Malware scanning: ${shouldScan ? 'enabled' : 'disabled'}`);
 
         if (operationType === OPERATIONS.BULK_SIGN && shouldScan) {
             const scanSuccess = await signingTool.performMalwareScan(toolCommand, operationType);
