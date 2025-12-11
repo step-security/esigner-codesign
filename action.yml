@@ -1,0 +1,82 @@
+name: "esigner-codesign"
+description: "GitHub Action for SSL.com code signing with enhanced security features"
+author: "step-security"
+
+branding:
+  icon: "shield"
+  color: "blue"
+
+inputs:
+  # Core signing operation
+  command:
+    description: "Signing command to execute"
+    required: true
+    default: "--version"
+
+  # Authentication credentials
+  username:
+    description: "SSL.com account username for authentication"
+    required: false
+
+  password:
+    description: "SSL.com account password (recommend using secrets)"
+    required: false
+
+  credential_id:
+    description: "Unique identifier for the signing certificate credential"
+    required: false
+
+  totp_secret:
+    description: "Time-based one-time password secret for two-factor authentication"
+    required: false
+
+  program_name:
+    description: "Program or application name for signing metadata"
+    required: false
+
+  # File and directory paths
+  file_path:
+    description: "Absolute path to the single file to be signed"
+    required: false
+
+  dir_path:
+    description: "Directory path containing multiple files for batch signing"
+    required: false
+
+  output_path:
+    description: "Destination directory where signed artifacts will be saved"
+    required: false
+
+  # Signing options
+  malware_block:
+    description: "Enable malware scanning before signing to prevent compromised code (true/false)"
+    required: false
+
+  override:
+    description: "Replace the original file with signed version instead of creating new file (true/false)"
+    required: false
+
+  # Operation settings
+  clean_logs:
+    description: "Remove log files after signing operation completes (true/false)"
+    required: false
+    default: "false"
+
+  environment_name:
+    description: "Target environment for signing operations (PROD for production, TEST for sandbox)"
+    required: false
+    default: "PROD"
+
+  jvm_max_memory:
+    description: "Maximum Java Virtual Machine heap memory allocation (e.g., 1024M, 2048M)"
+    required: false
+    default: "1024M"
+
+  signing_method:
+    description: "Code signing implementation version to use (v1 or v2)"
+    required: false
+    default: "v1"
+
+runs:
+  using: 'node20'
+  main: 'dist/index.js'

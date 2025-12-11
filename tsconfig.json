@@ -1,0 +1,22 @@
+{
+  "compilerOptions": {
+    // Language & Module Settings
+    "target": "es6",
+    "module": "commonjs",
+
+    // Project Structure
+    "rootDir": "./src",
+    "outDir": "./lib",
+
+    // Type Checking - Strict Mode
+    "strict": true,
+    "noImplicitAny": true,
+
+    // Module Resolution & Imports
+    "esModuleInterop": true,
+  },
+  "exclude": [
+    "node_modules",
+    "**/*.test.ts",
+  ]
+}
