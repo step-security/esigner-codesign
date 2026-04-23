@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     // Language & Module Settings
-    "target": "es6",
+    "target": "es2022",
     "module": "commonjs",
 
     // Project Structure
