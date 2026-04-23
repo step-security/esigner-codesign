@@ -1,3 +1,5 @@
+[![StepSecurity Maintained Action](https://raw.githubusercontent.com/step-security/maintained-actions-assets/main/assets/maintained-action-banner.png)](https://docs.stepsecurity.io/actions/stepsecurity-maintained-actions)
+
 # step-security/esigner-codesign
 
 GitHub Action for SSL code signing with enhanced security features. Sign executables, libraries, scripts, and packages with EV code signing certificates.
