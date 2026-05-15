@@ -146,15 +146,6 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -170,8 +161,7 @@ const setup_jdk_installer_1 = __nccwpck_require__(4512);
 const util_1 = __nccwpck_require__(4024);
 // Check if Java installation is required
 const isJavaInstallationNeeded = () => {
-    var _a;
-    const currentVersion = parseInt((_a = process.env['JAVA_VERSION']) !== null && _a !== void 0 ? _a : '0');
+    const currentVersion = parseInt(process.env['JAVA_VERSION'] ?? '0');
     const minimumRequired = 11;
     return currentVersion < minimumRequired;
 };
@@ -192,82 +182,96 @@ const performLogCleanup = (commandPath) => {
     }
 };
 // Setup Java environment if needed
-const setupJavaEnvironment = () => __awaiter(void 0, void 0, void 0, function* () {
-    var _a, _b, _c;
-    let javaHomePath = (_a = process.env['JAVA_HOME']) !== null && _a !== void 0 ? _a : '';
-    const javaVer = parseInt((_b = process.env['JAVA_VERSION']) !== null && _b !== void 0 ? _b : '0');
+const setupJavaEnvironment = async () => {
+    let javaHomePath = process.env['JAVA_HOME'] ?? '';
+    const javaVer = parseInt(process.env['JAVA_VERSION'] ?? '0');
     core.info(`Java home directory: ${javaHomePath}`);
     core.info(`Java version: ${javaVer}`);
     if (isJavaInstallationNeeded()) {
         const jdkProvider = new setup_jdk_installer_1.CorrettoJdkProvider();
-        yield jdkProvider.performSetup();
-        javaHomePath = (_c = process.env['JAVA_HOME']) !== null && _c !== void 0 ? _c : '';
+        await jdkProvider.performSetup();
+        javaHomePath = process.env['JAVA_HOME'] ?? '';
     }
     else {
         core.info(`Java already installed at: ${javaHomePath}`);
     }
     return javaHomePath;
-});
-function validateSubscription() {
-    var _a;
-    return __awaiter(this, void 0, void 0, function* () {
-        const API_URL = `https://agent.api.stepsecurity.io/v1/github/${process.env.GITHUB_REPOSITORY}/actions/subscription`;
-        try {
-            yield axios_1.default.get(API_URL, { timeout: 3000 });
+};
+async function validateSubscription() {
+    const eventPath = process.env.GITHUB_EVENT_PATH;
+    let repoPrivate;
+    if (eventPath && fs_1.default.existsSync(eventPath)) {
+        const eventData = JSON.parse(fs_1.default.readFileSync(eventPath, 'utf8'));
+        repoPrivate = eventData?.repository?.private;
+    }
+    const upstream = 'sslcom/esigner-codesign';
+    const action = process.env.GITHUB_ACTION_REPOSITORY;
+    const docsUrl = 'https://docs.stepsecurity.io/actions/stepsecurity-maintained-actions';
+    core.info('');
+    core.info('[1;36mStepSecurity Maintained Action[0m');
+    core.info(`Secure drop-in replacement for ${upstream}`);
+    if (repoPrivate === false)
+        core.info('[32m✓ Free for public repositories[0m');
+    core.info(`[36mLearn more:[0m ${docsUrl}`);
+    core.info('');
+    if (repoPrivate === false)
+        return;
+    const serverUrl = process.env.GITHUB_SERVER_URL || 'https://github.com';
+    const body = { action: action || '' };
+    if (serverUrl !== 'https://github.com')
+        body.ghes_server = serverUrl;
+    try {
+        await axios_1.default.post(`https://agent.api.stepsecurity.io/v1/github/${process.env.GITHUB_REPOSITORY}/actions/maintained-actions-subscription`, body, { timeout: 3000 });
+    }
+    catch (error) {
+        if ((0, axios_1.isAxiosError)(error) && error.response?.status === 403) {
+            core.error(`[1;31mThis action requires a StepSecurity subscription for private repositories.[0m`);
+            core.error(`[31mLearn how to enable a subscription: ${docsUrl}[0m`);
+            process.exit(1);
         }
-        catch (error) {
-            if ((0, axios_1.isAxiosError)(error) && ((_a = error.response) === null || _a === void 0 ? void 0 : _a.status) === 403) {
-                core.error('Subscription is not valid. Reach out to support@stepsecurity.io');
-                process.exit(1);
-            }
-            else {
-                core.info('Timeout or API not reachable. Continuing to next step.');
-            }
-        }
-    });
+        core.info('Timeout or API not reachable. Continuing to next step.');
+    }
 }
 // Main execution function
-function main() {
-    return __awaiter(this, void 0, void 0, function* () {
-        try {
-            yield validateSubscription();
-            core.debug('Initializing code signing workflow');
-            core.debug('Starting signing action execution');
-            const operationType = core.getInput(constants_1.INPUT_KEYS.CMD);
-            const commandParameters = (0, util_1.assembleCommandString)(operationType);
-            core.info(`Command parameters: ${commandParameters}`);
-            const javaPath = yield setupJavaEnvironment();
-            const signingTool = new setup_codesigner_1.SigningToolManager();
-            let toolCommand = yield signingTool.initialize();
-            toolCommand = toolCommand.replace(/\${{ JAVA_HOME }}/g, `${javaPath}/bin/java`);
-            const fullCommand = `${toolCommand} ${commandParameters}`;
-            core.info(`Executing signing command: ${fullCommand}`);
-            const malwareScanEnabled = core.getInput(constants_1.INPUT_KEYS.MALWARE_CHECK, { required: false });
-            const shouldScan = malwareScanEnabled.toUpperCase() === 'TRUE';
-            core.info(`Malware scanning: ${shouldScan ? 'enabled' : 'disabled'}`);
-            if (operationType === constants_1.OPERATIONS.BULK_SIGN && shouldScan) {
-                const scanSuccess = yield signingTool.performMalwareScan(toolCommand, operationType);
-                if (!scanSuccess) {
-                    core.info('');
-                    core.setFailed('Something Went Wrong. Please try again.');
-                    return;
-                }
-            }
-            const executionResult = yield exec.getExecOutput(fullCommand, [], { windowsVerbatimArguments: false });
-            performLogCleanup(fullCommand);
-            if (detectExecutionErrors(executionResult)) {
+async function main() {
+    try {
+        await validateSubscription();
+        core.debug('Initializing code signing workflow');
+        core.debug('Starting signing action execution');
+        const operationType = core.getInput(constants_1.INPUT_KEYS.CMD);
+        const commandParameters = (0, util_1.assembleCommandString)(operationType);
+        core.info(`Command parameters: ${commandParameters}`);
+        const javaPath = await setupJavaEnvironment();
+        const signingTool = new setup_codesigner_1.SigningToolManager();
+        let toolCommand = await signingTool.initialize();
+        toolCommand = toolCommand.replace(/\${{ JAVA_HOME }}/g, `${javaPath}/bin/java`);
+        const fullCommand = `${toolCommand} ${commandParameters}`;
+        core.info(`Executing signing command: ${fullCommand}`);
+        const malwareScanEnabled = core.getInput(constants_1.INPUT_KEYS.MALWARE_CHECK, { required: false });
+        const shouldScan = malwareScanEnabled.toUpperCase() === 'TRUE';
+        core.info(`Malware scanning: ${shouldScan ? 'enabled' : 'disabled'}`);
+        if (operationType === constants_1.OPERATIONS.BULK_SIGN && shouldScan) {
+            const scanSuccess = await signingTool.performMalwareScan(toolCommand, operationType);
+            if (!scanSuccess) {
                 core.info('');
                 core.setFailed('Something Went Wrong. Please try again.');
                 return;
             }
-            core.setOutput('CodeSigner', executionResult);
         }
-        catch (error) {
-            if (error instanceof Error) {
-                core.setFailed(error.message);
-            }
+        const executionResult = await exec.getExecOutput(fullCommand, [], { windowsVerbatimArguments: false });
+        performLogCleanup(fullCommand);
+        if (detectExecutionErrors(executionResult)) {
+            core.info('');
+            core.setFailed('Something Went Wrong. Please try again.');
+            return;
         }
-    });
+        core.setOutput('CodeSigner', executionResult);
+    }
+    catch (error) {
+        if (error instanceof Error) {
+            core.setFailed(error.message);
+        }
+    }
 }
 main().then();
 
@@ -301,15 +305,6 @@ var __importStar = (this && this.__importStar) || function (mod) {
     if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
     __setModuleDefault(result, mod);
     return result;
-};
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
 };
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -366,32 +361,30 @@ class SigningToolManager {
         const checkStream = (stream) => errorPatterns.some(pattern => stream.includes(pattern));
         return checkStream(output.stdout) || checkStream(output.stderr);
     }
-    initialize() {
-        return __awaiter(this, void 0, void 0, function* () {
-            const workDir = path_1.default.resolve(process.cwd());
-            (0, util_1.debugListDirectory)(workDir);
-            const { downloadUrl, executableScript, platform } = this.getDownloadDetails();
-            const toolBaseDir = path_1.default.resolve(process.cwd(), 'codesign');
-            if (!(0, fs_1.existsSync)(toolBaseDir)) {
-                (0, fs_1.mkdirSync)(toolBaseDir);
-                core.info(`Created tool base directory: ${toolBaseDir}`);
-            }
-            const toolPath = yield this.ensureToolDownloaded(toolBaseDir, downloadUrl);
-            core.info(`Signing tool installed at: ${toolPath}`);
-            (0, util_1.debugListDirectory)(toolPath);
-            const environment = core.getInput(constants_1.INPUT_KEYS.ENV_NAME) || constants_1.ENV_CONFIG.PRODUCTION;
-            const memoryLimit = core.getInput(constants_1.INPUT_KEYS.MEMORY_LIMIT) || '2048M';
-            const signVersion = core.getInput(constants_1.INPUT_KEYS.SIGN_VERSION) || constants_1.SIGN_METHOD.VERSION_ONE;
-            this.writeConfiguration(toolPath, environment);
-            core.info(`Configured signing tool path: ${toolPath}`);
-            core.exportVariable(`CODE_SIGN_TOOL_PATH`, toolPath);
-            const executableCmd = this.buildExecutableCommand(toolPath, executableScript, signVersion, memoryLimit, platform);
-            const shellPrefix = (0, util_1.resolveUserShell)(signVersion);
-            core.info(`Shell command: ${shellPrefix}`);
-            core.info(`Executable command: ${executableCmd}`);
-            const finalCommand = `${shellPrefix} ${executableCmd}`.trim();
-            return finalCommand;
-        });
+    async initialize() {
+        const workDir = path_1.default.resolve(process.cwd());
+        (0, util_1.debugListDirectory)(workDir);
+        const { downloadUrl, executableScript, platform } = this.getDownloadDetails();
+        const toolBaseDir = path_1.default.resolve(process.cwd(), 'codesign');
+        if (!(0, fs_1.existsSync)(toolBaseDir)) {
+            (0, fs_1.mkdirSync)(toolBaseDir);
+            core.info(`Created tool base directory: ${toolBaseDir}`);
+        }
+        const toolPath = await this.ensureToolDownloaded(toolBaseDir, downloadUrl);
+        core.info(`Signing tool installed at: ${toolPath}`);
+        (0, util_1.debugListDirectory)(toolPath);
+        const environment = core.getInput(constants_1.INPUT_KEYS.ENV_NAME) || constants_1.ENV_CONFIG.PRODUCTION;
+        const memoryLimit = core.getInput(constants_1.INPUT_KEYS.MEMORY_LIMIT) || '2048M';
+        const signVersion = core.getInput(constants_1.INPUT_KEYS.SIGN_VERSION) || constants_1.SIGN_METHOD.VERSION_ONE;
+        this.writeConfiguration(toolPath, environment);
+        core.info(`Configured signing tool path: ${toolPath}`);
+        core.exportVariable(`CODE_SIGN_TOOL_PATH`, toolPath);
+        const executableCmd = this.buildExecutableCommand(toolPath, executableScript, signVersion, memoryLimit, platform);
+        const shellPrefix = (0, util_1.resolveUserShell)(signVersion);
+        core.info(`Shell command: ${shellPrefix}`);
+        core.info(`Executable command: ${executableCmd}`);
+        const finalCommand = `${shellPrefix} ${executableCmd}`.trim();
+        return finalCommand;
     }
     buildScanCommand(operation) {
         let scanCmd = constants_1.OPERATIONS.CODE_SCAN;
@@ -401,40 +394,36 @@ class SigningToolManager {
         }
         return scanCmd;
     }
-    ensureToolDownloaded(baseDir, downloadUrl) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const cachedPath = process.env['CODESIGNTOOL_PATH'];
-            const defaultPath = path_1.default.join(baseDir, constants_1.SIGNING_TOOL_DIR);
-            let toolPath = cachedPath !== null && cachedPath !== void 0 ? cachedPath : defaultPath;
-            if (!(0, fs_1.existsSync)(toolPath)) {
-                core.info(`Fetching signing tool from ${downloadUrl}`);
-                const downloadedArchive = yield tc.downloadTool(downloadUrl);
-                yield (0, util_1.unzipToDestination)(downloadedArchive, path_1.default.join(baseDir, constants_1.SIGNING_TOOL_DIR));
-                core.info(`Extracting signing tool archive from ${downloadedArchive} to ${baseDir}`);
-                const extractedDirs = fs_1.default.readdirSync(baseDir);
-                toolPath = path_1.default.join(baseDir, extractedDirs[0]);
-                core.exportVariable(`CODESIGNTOOL_PATH`, toolPath);
-            }
-            return toolPath;
-        });
+    async ensureToolDownloaded(baseDir, downloadUrl) {
+        const cachedPath = process.env['CODESIGNTOOL_PATH'];
+        const defaultPath = path_1.default.join(baseDir, constants_1.SIGNING_TOOL_DIR);
+        let toolPath = cachedPath ?? defaultPath;
+        if (!(0, fs_1.existsSync)(toolPath)) {
+            core.info(`Fetching signing tool from ${downloadUrl}`);
+            const downloadedArchive = await tc.downloadTool(downloadUrl);
+            await (0, util_1.unzipToDestination)(downloadedArchive, path_1.default.join(baseDir, constants_1.SIGNING_TOOL_DIR));
+            core.info(`Extracting signing tool archive from ${downloadedArchive} to ${baseDir}`);
+            const extractedDirs = fs_1.default.readdirSync(baseDir);
+            toolPath = path_1.default.join(baseDir, extractedDirs[0]);
+            core.exportVariable(`CODESIGNTOOL_PATH`, toolPath);
+        }
+        return toolPath;
     }
-    performMalwareScan(baseCommand, operation) {
-        return __awaiter(this, void 0, void 0, function* () {
-            const scanCommand = this.buildScanCommand(operation);
-            const targetDirectory = path_1.default.normalize((0, util_1.fetchInputValue)(constants_1.INPUT_KEYS.DIR));
-            const fileEntries = fs_1.default.readdirSync(targetDirectory);
-            for (const entry of fileEntries) {
-                const fullFilePath = path_1.default.join(targetDirectory, entry);
-                const scanWithFile = `${scanCommand} -input_file_path="${fullFilePath}"`;
-                const completeScanCmd = `${baseCommand} ${scanWithFile}`;
-                core.info(`Scanning file for malware: ${entry}`);
-                const execResult = yield exec.getExecOutput(completeScanCmd, [], { windowsVerbatimArguments: false });
-                if (this.hasExecutionError(execResult)) {
-                    return false;
-                }
+    async performMalwareScan(baseCommand, operation) {
+        const scanCommand = this.buildScanCommand(operation);
+        const targetDirectory = path_1.default.normalize((0, util_1.fetchInputValue)(constants_1.INPUT_KEYS.DIR));
+        const fileEntries = fs_1.default.readdirSync(targetDirectory);
+        for (const entry of fileEntries) {
+            const fullFilePath = path_1.default.join(targetDirectory, entry);
+            const scanWithFile = `${scanCommand} -input_file_path="${fullFilePath}"`;
+            const completeScanCmd = `${baseCommand} ${scanWithFile}`;
+            core.info(`Scanning file for malware: ${entry}`);
+            const execResult = await exec.getExecOutput(completeScanCmd, [], { windowsVerbatimArguments: false });
+            if (this.hasExecutionError(execResult)) {
+                return false;
             }
-            return true;
-        });
+        }
+        return true;
     }
 }
 exports.SigningToolManager = SigningToolManager;
@@ -470,15 +459,6 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -494,6 +474,13 @@ const util_1 = __nccwpck_require__(4024);
 const constants_1 = __nccwpck_require__(5105);
 const os_1 = __importDefault(__nccwpck_require__(2037));
 class JdkInstallationBase {
+    distributionName;
+    httpClient;
+    jdkVersion;
+    systemArchitecture;
+    distributionType;
+    isStableRelease;
+    shouldCheckLatest;
     constructor(distributionName) {
         this.distributionName = distributionName;
         this.httpClient = new httpm.HttpClient('actions-codesign', undefined, {
@@ -585,40 +572,38 @@ class JdkInstallationBase {
         };
         return archMap[this.systemArchitecture] || this.systemArchitecture;
     }
-    performSetup() {
-        return __awaiter(this, void 0, void 0, function* () {
-            let jdkInstallation = this.searchToolCache();
-            const shouldFetchLatest = this.shouldCheckLatest;
-            if (jdkInstallation && !shouldFetchLatest) {
+    async performSetup() {
+        let jdkInstallation = this.searchToolCache();
+        const shouldFetchLatest = this.shouldCheckLatest;
+        if (jdkInstallation && !shouldFetchLatest) {
+            core.info(`Found JDK ${jdkInstallation.version} in cache`);
+        }
+        else {
+            core.info('Resolving latest JDK version from remote');
+            const releasePackage = await this.locateReleaseForVersion(this.jdkVersion);
+            core.info(`Latest version identified: ${releasePackage.version}`);
+            const isCachedVersionMatching = jdkInstallation?.version === releasePackage.version;
+            if (isCachedVersionMatching && jdkInstallation) {
                 core.info(`Found JDK ${jdkInstallation.version} in cache`);
             }
             else {
-                core.info('Resolving latest JDK version from remote');
-                const releasePackage = yield this.locateReleaseForVersion(this.jdkVersion);
-                core.info(`Latest version identified: ${releasePackage.version}`);
-                const isCachedVersionMatching = (jdkInstallation === null || jdkInstallation === void 0 ? void 0 : jdkInstallation.version) === releasePackage.version;
-                if (isCachedVersionMatching && jdkInstallation) {
-                    core.info(`Found JDK ${jdkInstallation.version} in cache`);
-                }
-                else {
-                    core.info('Downloading JDK package');
-                    jdkInstallation = yield this.fetchJdkArchive(releasePackage);
-                    core.info(`JDK ${jdkInstallation.version} downloaded successfully`);
-                }
+                core.info('Downloading JDK package');
+                jdkInstallation = await this.fetchJdkArchive(releasePackage);
+                core.info(`JDK ${jdkInstallation.version} downloaded successfully`);
             }
-            if (!jdkInstallation) {
-                throw new Error('Failed to setup JDK installation');
-            }
-            // Handle macOS specific JDK path structure
-            const macosJdkPath = path_1.default.join(jdkInstallation.path, constants_1.JAVA_MAC_PATH_SUFFIX);
-            const isMacOS = process.platform === 'darwin';
-            if (isMacOS && fs.existsSync(macosJdkPath)) {
-                jdkInstallation.path = macosJdkPath;
-            }
-            core.info(`Configuring JDK ${jdkInstallation.version} as default`);
-            this.configureJavaEnvironment(jdkInstallation.version, jdkInstallation.path);
-            return jdkInstallation;
-        });
+        }
+        if (!jdkInstallation) {
+            throw new Error('Failed to setup JDK installation');
+        }
+        // Handle macOS specific JDK path structure
+        const macosJdkPath = path_1.default.join(jdkInstallation.path, constants_1.JAVA_MAC_PATH_SUFFIX);
+        const isMacOS = process.platform === 'darwin';
+        if (isMacOS && fs.existsSync(macosJdkPath)) {
+            jdkInstallation.path = macosJdkPath;
+        }
+        core.info(`Configuring JDK ${jdkInstallation.version} as default`);
+        this.configureJavaEnvironment(jdkInstallation.version, jdkInstallation.path);
+        return jdkInstallation;
     }
 }
 exports.JdkInstallationBase = JdkInstallationBase;
@@ -653,15 +638,6 @@ var __importStar = (this && this.__importStar) || function (mod) {
     if (mod != null) for (var k in mod) if (k !== "default" && Object.prototype.hasOwnProperty.call(mod, k)) __createBinding(result, mod, k);
     __setModuleDefault(result, mod);
     return result;
-};
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
 };
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
@@ -704,24 +680,22 @@ class CorrettoJdkProvider extends setup_jdk_base_installer_1.JdkInstallationBase
         }
         return matched[1];
     }
-    locateReleaseForVersion(versionStr) {
-        return __awaiter(this, void 0, void 0, function* () {
-            if (!this.isStableRelease) {
-                throw new Error('Early access versions are not supported');
-            }
-            if (versionStr.includes('.')) {
-                throw new Error('Only major versions are supported');
-            }
-            const availableReleases = yield this.fetchAvailableReleases();
-            const compatibleReleases = this.findMatchingReleases(availableReleases, versionStr);
-            const selectedRelease = compatibleReleases.length > 0 ? compatibleReleases[0] : null;
-            if (!selectedRelease) {
-                const versionList = this.formatVersionList(availableReleases);
-                const errorSuffix = versionList ? `\nAvailable versions: ${versionList}` : '';
-                throw new Error(`Could not find satisfied version for SemVer '${versionStr}'. ${errorSuffix}`);
-            }
-            return selectedRelease;
-        });
+    async locateReleaseForVersion(versionStr) {
+        if (!this.isStableRelease) {
+            throw new Error('Early access versions are not supported');
+        }
+        if (versionStr.includes('.')) {
+            throw new Error('Only major versions are supported');
+        }
+        const availableReleases = await this.fetchAvailableReleases();
+        const compatibleReleases = this.findMatchingReleases(availableReleases, versionStr);
+        const selectedRelease = compatibleReleases.length > 0 ? compatibleReleases[0] : null;
+        if (!selectedRelease) {
+            const versionList = this.formatVersionList(availableReleases);
+            const errorSuffix = versionList ? `\nAvailable versions: ${versionList}` : '';
+            throw new Error(`Could not find satisfied version for SemVer '${versionStr}'. ${errorSuffix}`);
+        }
+        return selectedRelease;
     }
     extractPlatformVersions(versionData) {
         const versions = [];
@@ -749,18 +723,16 @@ class CorrettoJdkProvider extends setup_jdk_base_installer_1.JdkInstallationBase
         }
         return versions;
     }
-    fetchJdkArchive(releaseInfo) {
-        return __awaiter(this, void 0, void 0, function* () {
-            core.info(`Downloading JDK ${releaseInfo.version} from ${releaseInfo.url}`);
-            const downloadedArchive = yield tc.downloadTool(releaseInfo.url);
-            core.info(`Extracting JDK archive`);
-            const extractedDirectory = yield (0, util_1.unpackJavaArchive)(downloadedArchive, (0, util_1.detectArchiveFormat)());
-            const directoryContents = fs_1.default.readdirSync(extractedDirectory);
-            const jdkDirectory = path_1.default.join(extractedDirectory, directoryContents[0]);
-            const formattedVersion = this.formatCacheVersionName(releaseInfo.version);
-            const cachedJdkPath = yield tc.cacheDir(jdkDirectory, this.cachedToolDirectory, formattedVersion, this.systemArchitecture);
-            return { version: releaseInfo.version, path: cachedJdkPath };
-        });
+    async fetchJdkArchive(releaseInfo) {
+        core.info(`Downloading JDK ${releaseInfo.version} from ${releaseInfo.url}`);
+        const downloadedArchive = await tc.downloadTool(releaseInfo.url);
+        core.info(`Extracting JDK archive`);
+        const extractedDirectory = await (0, util_1.unpackJavaArchive)(downloadedArchive, (0, util_1.detectArchiveFormat)());
+        const directoryContents = fs_1.default.readdirSync(extractedDirectory);
+        const jdkDirectory = path_1.default.join(extractedDirectory, directoryContents[0]);
+        const formattedVersion = this.formatCacheVersionName(releaseInfo.version);
+        const cachedJdkPath = await tc.cacheDir(jdkDirectory, this.cachedToolDirectory, formattedVersion, this.systemArchitecture);
+        return { version: releaseInfo.version, path: cachedJdkPath };
     }
     logAvailableVersions(versions) {
         core.startGroup('Print information about available versions');
@@ -770,29 +742,26 @@ class CorrettoJdkProvider extends setup_jdk_base_installer_1.JdkInstallationBase
         console.log(versionSummary);
         core.endGroup();
     }
-    fetchAvailableReleases() {
-        var _a, _b;
-        return __awaiter(this, void 0, void 0, function* () {
-            const osType = this.determinePlatformName();
-            const architecture = this.translateArchitecture();
-            const packageType = this.distributionType;
-            const debugMode = core.isDebug();
-            if (debugMode) {
-                console.time('corretto-retrieve-available-versions');
-            }
-            const versionIndexUrl = 'https://corretto.github.io/corretto-downloads/latest_links/indexmap_with_checksum.json';
-            const response = yield this.httpClient.getJson(versionIndexUrl);
-            const versionData = response.result;
-            if (!versionData) {
-                throw Error(`Could not fetch latest corretto versions from ${versionIndexUrl}`);
-            }
-            const platformVersions = (_b = (_a = versionData === null || versionData === void 0 ? void 0 : versionData[osType]) === null || _a === void 0 ? void 0 : _a[architecture]) === null || _b === void 0 ? void 0 : _b[packageType];
-            const processedVersions = this.extractPlatformVersions(platformVersions);
-            if (debugMode) {
-                this.logAvailableVersions(processedVersions);
-            }
-            return processedVersions;
-        });
+    async fetchAvailableReleases() {
+        const osType = this.determinePlatformName();
+        const architecture = this.translateArchitecture();
+        const packageType = this.distributionType;
+        const debugMode = core.isDebug();
+        if (debugMode) {
+            console.time('corretto-retrieve-available-versions');
+        }
+        const versionIndexUrl = 'https://corretto.github.io/corretto-downloads/latest_links/indexmap_with_checksum.json';
+        const response = await this.httpClient.getJson(versionIndexUrl);
+        const versionData = response.result;
+        if (!versionData) {
+            throw Error(`Could not fetch latest corretto versions from ${versionIndexUrl}`);
+        }
+        const platformVersions = versionData?.[osType]?.[architecture]?.[packageType];
+        const processedVersions = this.extractPlatformVersions(platformVersions);
+        if (debugMode) {
+            this.logAvailableVersions(processedVersions);
+        }
+        return processedVersions;
     }
 }
 exports.CorrettoJdkProvider = CorrettoJdkProvider;
@@ -828,15 +797,6 @@ var __importStar = (this && this.__importStar) || function (mod) {
     __setModuleDefault(result, mod);
     return result;
 };
-var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, generator) {
-    function adopt(value) { return value instanceof P ? value : new P(function (resolve) { resolve(value); }); }
-    return new (P || (P = Promise))(function (resolve, reject) {
-        function fulfilled(value) { try { step(generator.next(value)); } catch (e) { reject(e); } }
-        function rejected(value) { try { step(generator["throw"](value)); } catch (e) { reject(e); } }
-        function step(result) { result.done ? resolve(result.value) : adopt(result.value).then(fulfilled, rejected); }
-        step((generator = generator.apply(thisArg, _arguments || [])).next());
-    });
-};
 var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
@@ -854,10 +814,8 @@ function getTempDir() {
     return runnerTemp || os_1.default.tmpdir();
 }
 exports.getTempDir = getTempDir;
-function unzipToDestination(toolPath, destPath) {
-    return __awaiter(this, void 0, void 0, function* () {
-        return yield tc.extractZip(toolPath, destPath);
-    });
+async function unzipToDestination(toolPath, destPath) {
+    return await tc.extractZip(toolPath, destPath);
 }
 exports.unzipToDestination = unzipToDestination;
 function detectArchiveFormat() {
@@ -866,11 +824,10 @@ function detectArchiveFormat() {
 }
 exports.detectArchiveFormat = detectArchiveFormat;
 function checkVersionCompatibility(range, version) {
-    var _a;
     const isValid = semver.valid(range);
     if (isValid) {
         const semRange = semver.parse(range);
-        const hasBuild = semRange && ((_a = semRange.build) === null || _a === void 0 ? void 0 : _a.length) > 0;
+        const hasBuild = semRange && semRange.build?.length > 0;
         if (hasBuild) {
             return semver.compareBuild(range, version) === 0;
         }
@@ -879,8 +836,7 @@ function checkVersionCompatibility(range, version) {
 }
 exports.checkVersionCompatibility = checkVersionCompatibility;
 function findCachedTool(toolName, version, architecture) {
-    var _a;
-    const toolCacheRoot = (_a = process.env['RUNNER_TOOL_CACHE']) !== null && _a !== void 0 ? _a : '';
+    const toolCacheRoot = process.env['RUNNER_TOOL_CACHE'] ?? '';
     const fullPath = path_1.default.join(toolCacheRoot, toolName, version, architecture);
     const pathExists = fs.existsSync(fullPath);
     if (pathExists) {
@@ -912,7 +868,6 @@ function fetchInputValue(inputKey) {
 }
 exports.fetchInputValue = fetchInputValue;
 function resolveUserShell(signingMethod) {
-    var _a, _b;
     const { env } = process;
     const platform = identifyPlatform();
     if (platform == constants_1.OS_PLATFORM.WIN_SYSTEM) {
@@ -927,34 +882,32 @@ function resolveUserShell(signingMethod) {
             return userShellInfo.shell;
         }
     }
-    catch (_c) {
+    catch {
         // Ignored
     }
     if (platform === constants_1.OS_PLATFORM.MAC_OS_SYSTEM) {
-        return (_a = env.SHELL) !== null && _a !== void 0 ? _a : '/bin/zsh';
+        return env.SHELL ?? '/bin/zsh';
     }
-    return (_b = env.SHELL) !== null && _b !== void 0 ? _b : '/bin/sh';
+    return env.SHELL ?? '/bin/sh';
 }
 exports.resolveUserShell = resolveUserShell;
-function unpackJavaArchive(toolPath, extension) {
-    return __awaiter(this, void 0, void 0, function* () {
-        let fileExtension = extension;
-        if (!fileExtension) {
-            fileExtension = toolPath.endsWith('.tar.gz') ? 'tar.gz' : path_1.default.extname(toolPath);
-            if (fileExtension.startsWith('.')) {
-                fileExtension = fileExtension.substring(1);
-            }
+async function unpackJavaArchive(toolPath, extension) {
+    let fileExtension = extension;
+    if (!fileExtension) {
+        fileExtension = toolPath.endsWith('.tar.gz') ? 'tar.gz' : path_1.default.extname(toolPath);
+        if (fileExtension.startsWith('.')) {
+            fileExtension = fileExtension.substring(1);
         }
-        switch (fileExtension) {
-            case 'tar.gz':
-            case 'tar':
-                return yield tc.extractTar(toolPath);
-            case 'zip':
-                return yield tc.extractZip(toolPath);
-            default:
-                return yield tc.extract7z(toolPath);
-        }
-    });
+    }
+    switch (fileExtension) {
+        case 'tar.gz':
+        case 'tar':
+            return await tc.extractTar(toolPath);
+        case 'zip':
+            return await tc.extractZip(toolPath);
+        default:
+            return await tc.extract7z(toolPath);
+    }
 }
 exports.unpackJavaArchive = unpackJavaArchive;
 function expandEnvironmentVars(input) {
@@ -989,7 +942,7 @@ function appendParameter(inputKey, command, action) {
         return command;
     }
     const supportCommands = constants_1.COMMAND_PARAMETERS.get(action);
-    const isSupported = supportCommands === null || supportCommands === void 0 ? void 0 : supportCommands.includes(inputKey);
+    const isSupported = supportCommands?.includes(inputKey);
     if (!isSupported) {
         return command;
     }
